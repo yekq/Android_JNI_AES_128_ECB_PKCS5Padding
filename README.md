@@ -15,13 +15,14 @@
 - 从已废弃的 experimental Gradle 插件迁移到标准 Android Gradle Plugin 与 CMake 构建。
 - 移除已废弃的 `armeabi`、MIPS ABI，支持 `armeabi-v7a`、`arm64-v8a`、`x86`、`x86_64`。
 - 修复 Android 12 及以上版本要求的 `android:exported` 配置和原界面中文乱码。
+- Activity 新增一键测试，覆盖常见长度、数值边界、特殊 UTF-8 文本和异常密文，并显示通过数与总数。
 
 ## 构建环境
 
 | 项目                     | 版本            |
 |------------------------|---------------|
-| Android Gradle Plugin  | 9.1.1         |
-| Gradle                 | 9.3.1         |
+| Android Gradle Plugin  | 9.3.0         |
+| Gradle                 | 9.7.1         |
 | JDK                    | 17            |
 | compileSdk / targetSdk | 36            |
 | minSdk                 | 21            |
@@ -95,6 +96,16 @@ gcc -std=c11 -Wall -Wextra -Werror -pthread `
   -o native_test.exe
 .\native_test.exe
 ```
+
+## Activity 一键测试
+
+运行 Demo 后点击“一键运行常见边界与异常测试”，会执行 35 项测试并显示“通过数/总数”。测试范围包括：
+
+- AES 分组边界前后的 14 种长度，包括 0、1、15、16、17、4095、4096、4097 字节。
+- `Integer`、`Long` 的最小值和最大值，以及 `-1`、`0`、`1`。
+- 中文、emoji、空白字符、换行、内嵌空字符和类似 PKCS#7 填充的控制字符。
+- 固定兼容向量与 ECB 相同输入结果一致性。
+- `null`、空密文、非法 Base64、错误分组长度、错误 PKCS#7 填充及非规范 Base64 填充位。
 
 ## 安全说明
 

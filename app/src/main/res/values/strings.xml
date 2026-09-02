@@ -7,4 +7,8 @@
     <string name="error_empty_ciphertext">请输入需要解密的 Base64 密文</string>
     <string name="check_success">成功！解密结果与原文一致</string>
     <string name="check_failure">解密完成，但结果与当前原文不一致</string>
+    <string name="action_run_tests">一键运行常见边界与异常测试</string>
+    <string name="test_result_summary">测试结果：%1$d/%2$d 通过</string>
+    <string name="test_result_success">%1$s\n全部用例通过</string>
+    <string name="test_result_failure">%1$s\n失败明细：%2$s</string>
 </resources>
