@@ -1,3 +1,10 @@
 <resources>
-    <string name="app_name">JNIAESDemo</string>
+    <string name="app_name">JNI AES 演示</string>
+    <string name="hint_plaintext">输入需要加密的内容</string>
+    <string name="action_encrypt">加密</string>
+    <string name="hint_ciphertext">输入 Base64 密文</string>
+    <string name="action_decrypt">解密</string>
+    <string name="error_empty_ciphertext">请输入需要解密的 Base64 密文</string>
+    <string name="check_success">成功！解密结果与原文一致</string>
+    <string name="check_failure">解密完成，但结果与当前原文不一致</string>
 </resources>

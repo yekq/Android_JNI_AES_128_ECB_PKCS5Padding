@@ -1,15 +1,11 @@
-#ifndef _BASE64_H_
-#define _BASE64_H_
+#ifndef JNIAESDEMO_BASE64_H
+#define JNIAESDEMO_BASE64_H
 
 #include <stddef.h>
+#include <stdint.h>
 
-struct MyString{
-    char * data;
-    int length;
-};
-static const char base[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-char* base64_encode(const char*, int);
-char* base64_decode(const char*, int);
-static char find_pos(char);
+char *base64_encode(const uint8_t *data, size_t data_length);
+
+uint8_t *base64_decode(const char *data, size_t data_length, size_t *output_length);
 
 #endif

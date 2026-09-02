@@ -35,6 +35,11 @@ NOTE:   String length must be evenly divisible by 16byte (str_len % 16 == 0)
 /*****************************************************************************/
 
 #include "aes.h"
+#include "base64.h"
+
+#include <pthread.h>
+#include <stdlib.h>
+#include <string.h>
 
 
 /*****************************************************************************/
@@ -69,6 +74,7 @@ static uint8_t RoundKey[176];
 
 // The Key input to the AES Program
 static const uint8_t* Key;
+static pthread_mutex_t aes_mutex = PTHREAD_MUTEX_INITIALIZER;
 #if defined(CBC) && CBC
   // Initial Vector used only for CBC mode
   static uint8_t* Iv;
@@ -432,7 +438,7 @@ static void InvCipher(void)
   AddRoundKey(0);
 }
 
-static void BlockCopy(uint8_t* output, uint8_t* input)
+static void BlockCopy(uint8_t *output, const uint8_t *input)
 {
   uint8_t i;
   for (i=0;i<KEYLEN;++i)
@@ -449,8 +455,9 @@ static void BlockCopy(uint8_t* output, uint8_t* input)
 #if defined(ECB) && ECB
 
 
-void AES128_ECB_encrypt(uint8_t* input, const uint8_t* key, uint8_t* output)
+void AES128_ECB_encrypt(const uint8_t *input, const uint8_t *key, uint8_t *output)
 {
+    pthread_mutex_lock(&aes_mutex);
   // Copy input to output, and work in-memory on output
   BlockCopy(output, input);
   state = (state_t*)output;
@@ -460,10 +467,12 @@ void AES128_ECB_encrypt(uint8_t* input, const uint8_t* key, uint8_t* output)
 
   // The next function call encrypts the PlainText with the Key using AES algorithm.
   Cipher();
+    pthread_mutex_unlock(&aes_mutex);
 }
 
-void AES128_ECB_decrypt(uint8_t* input, const uint8_t* key, uint8_t *output)
+void AES128_ECB_decrypt(const uint8_t *input, const uint8_t *key, uint8_t *output)
 {
+    pthread_mutex_lock(&aes_mutex);
   // Copy input to output, and work in-memory on output
   BlockCopy(output, input);
   state = (state_t*)output;
@@ -473,163 +482,97 @@ void AES128_ECB_decrypt(uint8_t* input, const uint8_t* key, uint8_t *output)
   KeyExpansion();
 
   InvCipher();
+    pthread_mutex_unlock(&aes_mutex);
 }
 
-/**
- * 不定长加密,pkcs5padding
- */
-char* AES_128_ECB_PKCS5Padding_Encrypt(const char *in, const uint8_t *key)
-{
-
-  int inLength= (int) strlen(in);//输入的长度
-  int remainder = inLength % 16;
-  LOGE("输入: ");
-//    LOGEX(in,inLength);
-  LOGE(in);
-  LOGE("输入,转码:");
-  LOGE(base64_encode(in, inLength));
-  LOGE("key:");
-  LOGE(key);
-  uint8_t *paddingInput;
-//    int paddingInputLengt=PKCS5Padding(inLength,in,paddingInput);
-  int paddingInputLengt=0;
-  if(inLength<16)
-  {
-    paddingInput=(uint8_t*)malloc(16);
-    paddingInputLengt=16;
-    int i;
-    for (i = 0; i < 16; i++) {
-      if (i < inLength) {
-        paddingInput[i] = in[i];
-      } else {
-        paddingInput[i] = HEX[16 - inLength];
-      }
+AesResult AES_128_ECB_PKCS5Padding_Encrypt(
+        const uint8_t *input,
+        size_t input_length,
+        const uint8_t *key,
+        char **output) {
+    if ((input == NULL && input_length != 0) || key == NULL || output == NULL) {
+        return AES_RESULT_INVALID_ARGUMENT;
     }
-  }else
-  {
-    int group = inLength / 16;
-    int size = 16 * (group + 1);
-    paddingInput=(uint8_t*)malloc(size);
-    paddingInputLengt=size;
-
-    int dif = size - inLength;
-    int i;
-    for (i = 0; i < size; i++) {
-      if (i < inLength) {
-        paddingInput[i] = in[i];
-      } else {
-        if (remainder == 0) {
-          //刚好是16倍数,就填充16个16
-          paddingInput[i] = HEX[0];
-        } else {	//如果不足16位 少多少位就补几个几  如：少4为就补4个4 以此类推
-          paddingInput[i] = HEX[dif];
-        }
-      }
+    *output = NULL;
+    if (input_length > SIZE_MAX - AES_BLOCK_LENGTH) {
+        return AES_RESULT_INVALID_ARGUMENT;
     }
+
+    size_t padding_length = AES_BLOCK_LENGTH - input_length % AES_BLOCK_LENGTH;
+    size_t padded_length = input_length + padding_length;
+    uint8_t *padded_input = malloc(padded_length);
+    uint8_t *encrypted = malloc(padded_length);
+    if (padded_input == NULL || encrypted == NULL) {
+        free(padded_input);
+        free(encrypted);
+        return AES_RESULT_OUT_OF_MEMORY;
+    }
+
+    if (input_length != 0) {
+        memcpy(padded_input, input, input_length);
   }
-  int count=paddingInputLengt / 16;
-  //开始分段加密
-  char * out=(char*)malloc(paddingInputLengt);
-  int i;
-  for ( i = 0; i < count; ++i) {
-    AES128_ECB_encrypt(paddingInput+i*16, key, out+i*16);
+    memset(padded_input + input_length, (int) padding_length, padding_length);
+    for (size_t offset = 0; offset < padded_length; offset += AES_BLOCK_LENGTH) {
+        AES128_ECB_encrypt(padded_input + offset, key, encrypted + offset);
   }
-  char * base64En=base64_encode(out,paddingInputLengt);
-  LOGE(base64En);
-  free(paddingInput);
-  free(out);
-  return base64En;
+
+    *output = base64_encode(encrypted, padded_length);
+    free(padded_input);
+    free(encrypted);
+    return *output == NULL ? AES_RESULT_OUT_OF_MEMORY : AES_RESULT_OK;
 }
-/**
- * 不定长解密,pkcs5padding
- */
-char * AES_128_ECB_PKCS5Padding_Decrypt(const char *in, const uint8_t* key)
-{
-  //加密前:1
-  //key:1234567890abcdef
-  //加密后:qkrxxA9fIF636aITDRJhcg==
 
-//    in="m74nCuZkzK13anBQRDWeOw==";//123456
-//    in="qkrxxA9fIF636aITDRJhcg==";//1
-//    in="LuD5WoRRcHq1tuEWZQHLHwLexWUsAhX5OvafAJ8PbVg=";//abcdefghijklmnop
-//    in="+R99oRBuckos5mdUqQHHeoja4/HYqWtqTM3cgl+E0a3p5i7DoLeBpq/mVUfuEh5D1VRn4Wt4TzHazvz931WfiA==";//57yW56CB5Y6f55CGOuWwhjPkuKrlrZfoioLovazmjaLmiJA05Liq5a2X6IqC
-//    in="UUNc8Dh0OVZE9UyzJwWTSVkt3hgIxg0nfVHpSirRL3T1meUZDRUINWvoYfkcOEpL";//编码原理:将3个字节转换成4个字节
-//    in="Yrl8Sryq7Kpce4UWRfG3bBBYpzXv59Muj0wjkJYRHFb73CogeDRfQCXsjSfxTe0gibaf+f1FLekwow0f1W9stJy3q7CNOPzkSJVdCtyZvIxMxLwz9hyatUJnU4Nq6i2gkaiCZcwHuDtrAHpEoy1k0vudpWhGu2457iSc40Tqw4tQnxKX18DcKNG5/KPUM+A5Y9a3FxaAy84Turio78b+6A==";//{"Json解析":"支持格式化高亮折叠","支持XML转换":"支持XML转换Json,Json转XML","Json格式验证":"更详细准确的错误信息"}
-  LOGE("输入:");
-  LOGE(in);
-  uint8_t *inputDesBase64=base64_decode(in,strlen(in));
-  const size_t inputLength= (strlen(in) / 4) * 3;
-  uint8_t *out=malloc(inputLength);
-  memset(out,0,inputLength);
-  size_t count=inputLength/16;
-  if (count<=0)
-  {
-    count=1;
-  }
-  size_t i;
-  for ( i = 0; i < count; ++i) {
-      AES128_ECB_decrypt(inputDesBase64+i*16,key,out+i*16);
-  }
+AesResult AES_128_ECB_PKCS5Padding_Decrypt(
+        const char *input,
+        size_t input_length,
+        const uint8_t *key,
+        uint8_t **output,
+        size_t *output_length) {
+    if (input == NULL || key == NULL || output == NULL || output_length == NULL) {
+        return AES_RESULT_INVALID_ARGUMENT;
+    }
+    *output = NULL;
+    *output_length = 0;
 
-  /**
-   *  接下来的工作就把末尾的padding去掉T_T
-   *  "abcdefghijklmnop\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\0\0\0\0
-   *  To "abcdefghijklmnop\n"
-   *
-   *  "1\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f"
-   *  To "1\n"
-   */
-  int* result=findPaddingIndex(out,inputLength-1);
-  int offSetIndex=result[0];
-  int lastChar=result[1];
-  //检查是不是padding的字符,然后去掉
-  const size_t noZeroIndex=inputLength-offSetIndex;
-  if (lastChar>=0 && offSetIndex>=0)
-  {
-    int success=JNI_TRUE,i;
-    for ( i = 0; i < lastChar; ++i) {
-      size_t index=noZeroIndex-lastChar+i;
-      if (!HEX[lastChar]==out[index])
-      {
-        success=JNI_FALSE;
-      }
-    }
-    if(JNI_TRUE==success)
-    {
-      out[noZeroIndex-lastChar]='\n';
-      memset(out+noZeroIndex-lastChar+1,0,lastChar-1);
-    }
-  }else
-  {
-    out[noZeroIndex]='\n';
+    size_t encrypted_length = 0;
+    uint8_t *encrypted = base64_decode(input, input_length, &encrypted_length);
+    if (encrypted == NULL) {
+        return AES_RESULT_INVALID_BASE64;
   }
-  LOGE("解密结果:");
-  LOGE(out);
-  free(inputDesBase64);
-  return (char *) out;
-}
-int* findPaddingIndex(uint8_t * str,size_t length)
-{
-    int result[]={-1,-1},i,k;
-    for (i = 0; i < length; ++i) {
-        char c=str[length-i];
-        if ('\0'!=c)
-        {
-            result[0]=i;
-            for (k = 0; k < 16; ++k) {
-                if (HEX[k]==c)
-                {
-                    if (0==k)
-                    {
-                        k=16;
-                    }
-                    result[1]=k;
-                    return result;
-                }
-            }
-            return result;
-        }
+    if (encrypted_length == 0 || encrypted_length % AES_BLOCK_LENGTH != 0) {
+        free(encrypted);
+        return AES_RESULT_INVALID_CIPHERTEXT_LENGTH;
     }
+
+    uint8_t *decrypted = malloc(encrypted_length + 1);
+    if (decrypted == NULL) {
+        free(encrypted);
+        return AES_RESULT_OUT_OF_MEMORY;
+    }
+    for (size_t offset = 0; offset < encrypted_length; offset += AES_BLOCK_LENGTH) {
+        AES128_ECB_decrypt(encrypted + offset, key, decrypted + offset);
+    }
+    free(encrypted);
+
+    uint8_t padding_length = decrypted[encrypted_length - 1];
+    if (padding_length == 0 || padding_length > AES_BLOCK_LENGTH
+        || padding_length > encrypted_length) {
+        free(decrypted);
+        return AES_RESULT_INVALID_PADDING;
+    }
+    uint8_t padding_difference = 0;
+    for (size_t i = 0; i < padding_length; i++) {
+        padding_difference |= decrypted[encrypted_length - 1 - i] ^ padding_length;
+    }
+    if (padding_difference != 0) {
+        free(decrypted);
+        return AES_RESULT_INVALID_PADDING;
+    }
+
+    *output_length = encrypted_length - padding_length;
+    decrypted[*output_length] = '\0';
+    *output = decrypted;
+    return AES_RESULT_OK;
 }
 #endif // #if defined(ECB) && ECB
 

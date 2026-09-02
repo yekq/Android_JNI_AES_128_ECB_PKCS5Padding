@@ -1,153 +1,133 @@
 #include "base64.h"
 
-#include <stdio.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdlib.h>
 
-/* */
-char *base64_encode(const char* data, int data_len)
-{
-    //int data_len = strlen(data);
-    int prepare = 0;
-    int ret_len;
-    int temp = 0;
-    char *ret = NULL;
-    char *f = NULL;
-    int tmp = 0;
-    char changed[4];
-    int i = 0;
-    ret_len = data_len / 3;
-    temp = data_len % 3;
-    if (temp > 0)
-    {
-        ret_len += 1;
-    }
-    ret_len = ret_len*4 + 1;
-    ret = (char *)malloc(ret_len);
+static const char BASE64_ALPHABET[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-    if ( ret == NULL)
-    {
-        printf("No enough memory.\n");
-        exit(0);
+static int base64_value(unsigned char character) {
+    if (character >= 'A' && character <= 'Z') {
+        return character - 'A';
     }
-    memset(ret, 0, ret_len);
-    f = ret;
-    while (tmp < data_len)
-    {
-        temp = 0;
-        prepare = 0;
-        memset(changed, '\0', 4);
-        while (temp < 3)
-        {
-            //printf("tmp = %d\n", tmp);
-            if (tmp >= data_len)
-            {
-                break;
-            }
-            prepare = ((prepare << 8) | (data[tmp] & 0xFF));
-            tmp++;
-            temp++;
-        }
-        prepare = (prepare<<((3-temp)*8));
-        //printf("before for : temp = %d, prepare = %d\n", temp, prepare);
-        for (i = 0; i < 4 ;i++ )
-        {
-            if (temp < i)
-            {
-                changed[i] = 0x40;
-            }
-            else
-            {
-                changed[i] = (prepare>>((3-i)*6)) & 0x3F;
-            }
-            *f = base[changed[i]];
-            //printf("%.2X", changed[i]);
-            f++;
-        }
+    if (character >= 'a' && character <= 'z') {
+        return character - 'a' + 26;
     }
-    *f = '\0';
-
-    return ret;
-
+    if (character >= '0' && character <= '9') {
+        return character - '0' + 52;
+    }
+    if (character == '+') {
+        return 62;
+    }
+    if (character == '/') {
+        return 63;
+    }
+    return -1;
 }
-/* */
-static char find_pos(char ch)
-{
-    char *ptr = (char*)strrchr(base, ch);//the last position (the only) in base[]
-    return (ptr - base);
+
+char *base64_encode(const uint8_t *data, size_t data_length) {
+    if (data == NULL && data_length != 0) {
+        return NULL;
+    }
+    if (data_length > (SIZE_MAX - 1) / 4 * 3) {
+        return NULL;
+    }
+
+    size_t encoded_length = ((data_length + 2) / 3) * 4;
+    char *output = malloc(encoded_length + 1);
+    if (output == NULL) {
+        return NULL;
+    }
+
+    size_t input_index = 0;
+    size_t output_index = 0;
+    while (input_index < data_length) {
+        size_t remaining = data_length - input_index;
+        uint32_t value = (uint32_t) data[input_index] << 16;
+        if (remaining > 1) {
+            value |= (uint32_t) data[input_index + 1] << 8;
+        }
+        if (remaining > 2) {
+            value |= data[input_index + 2];
+        }
+
+        output[output_index++] = BASE64_ALPHABET[(value >> 18) & 0x3f];
+        output[output_index++] = BASE64_ALPHABET[(value >> 12) & 0x3f];
+        output[output_index++] = remaining > 1 ? BASE64_ALPHABET[(value >> 6) & 0x3f] : '=';
+        output[output_index++] = remaining > 2 ? BASE64_ALPHABET[value & 0x3f] : '=';
+        input_index += 3;
+    }
+    output[encoded_length] = '\0';
+    return output;
 }
-/* */
-char *base64_decode(const char *data, int data_len)
-{
-    int ret_len = (data_len / 4) * 3;
-    int equal_count = 0;
-    char *ret = NULL;
-    char *f = NULL;
-    int tmp = 0;
-    int temp = 0;
-    char need[3];
-    int prepare = 0;
-    int i = 0;
-    if (*(data + data_len - 1) == '=')
-    {
-        equal_count += 1;
+
+uint8_t *base64_decode(const char *data, size_t data_length, size_t *output_length) {
+    if (output_length == NULL) {
+        return NULL;
     }
-    if (*(data + data_len - 2) == '=')
-    {
-        equal_count += 1;
+    *output_length = 0;
+    if (data == NULL || data_length == 0 || data_length % 4 != 0) {
+        return NULL;
     }
-    if (*(data + data_len - 3) == '=')
-    {//seems impossible
-        equal_count += 1;
+
+    size_t padding = 0;
+    if (data[data_length - 1] == '=') {
+        padding++;
     }
-    switch (equal_count)
-    {
-    case 0:
-        ret_len += 4;//3 + 1 [1 for NULL]
-        break;
-    case 1:
-        ret_len += 4;//Ceil((6*3)/8)+1
-        break;
-    case 2:
-        ret_len += 3;//Ceil((6*2)/8)+1
-        break;
-    case 3:
-        ret_len += 2;//Ceil((6*1)/8)+1
-        break;
+    if (data[data_length - 2] == '=') {
+        padding++;
     }
-    ret = (char *)malloc(ret_len);
-    if (ret == NULL)
-    {
-        printf("No enough memory.\n");
-        exit(0);
+
+    size_t decoded_length = data_length / 4 * 3 - padding;
+    uint8_t *output = malloc(decoded_length == 0 ? 1 : decoded_length);
+    if (output == NULL) {
+        return NULL;
     }
-    memset(ret, 0, ret_len);
-    f = ret;
-    while (tmp < (data_len - equal_count))
-    {
-        temp = 0;
-        prepare = 0;
-        memset(need, 0, 4);
-        while (temp < 4)
-        {
-            if (tmp >= (data_len - equal_count))
-            {
-                break;
+
+    size_t output_index = 0;
+    for (size_t input_index = 0; input_index < data_length; input_index += 4) {
+        int values[4];
+        for (size_t i = 0; i < 4; i++) {
+            unsigned char character = (unsigned char) data[input_index + i];
+            bool is_padding = character == '=';
+            bool padding_allowed = input_index + 4 == data_length && i >= 2;
+            if (is_padding) {
+                if (!padding_allowed || (i == 2 && data[input_index + 3] != '=')) {
+                    free(output);
+                    return NULL;
+                }
+                values[i] = 0;
+            } else {
+                values[i] = base64_value(character);
+                if (values[i] < 0) {
+                    free(output);
+                    return NULL;
+                }
             }
-            prepare = (prepare << 6) | (find_pos(data[tmp]));
-            temp++;
-            tmp++;
         }
-        prepare = prepare << ((4-temp) * 6);
-        for (i=0; i<3 ;i++ )
-        {
-            if (i == temp)
-            {
-                break;
-            }
-            *f = (char)((prepare>>((2-i)*8)) & 0xFF);
-            f++;
+        if ((data[input_index + 2] == '=' && (values[1] & 0x0f) != 0)
+            || (data[input_index + 3] == '=' && data[input_index + 2] != '='
+                && (values[2] & 0x03) != 0)) {
+            free(output);
+            return NULL;
+        }
+
+        uint32_t value = ((uint32_t) values[0] << 18)
+                         | ((uint32_t) values[1] << 12)
+                         | ((uint32_t) values[2] << 6)
+                         | (uint32_t) values[3];
+        if (output_index < decoded_length) {
+            output[output_index++] = (uint8_t) (value >> 16);
+        }
+        if (output_index < decoded_length) {
+            output[output_index++] = (uint8_t) (value >> 8);
+        }
+        if (output_index < decoded_length) {
+            output[output_index++] = (uint8_t) value;
         }
     }
-    *f = '\0';
-    return ret;
+
+    *output_length = decoded_length;
+    return output;
 }

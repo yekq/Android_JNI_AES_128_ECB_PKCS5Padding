@@ -1,48 +1,47 @@
-#ifndef _AES_H_
-#define _AES_H_
+#ifndef JNIAESDEMO_AES_H
+#define JNIAESDEMO_AES_H
 
-#include <android/log.h>
-#include <stdlib.h>
+#include <stddef.h>
 #include <stdint.h>
-#include <jni.h>
-#include "base64.h"
 
-// #define the macros below to 1/0 to enable/disable the mode of operation.
-//
-// CBC enables AES128 encryption in CBC-mode of operation and handles 0-padding.
-// ECB enables the basic ECB 16-byte block algorithm. Both can be enabled simultaneously.
-
-// The #ifndef-guard allows it to be configured before #include'ing or at compile time.
 #ifndef CBC
-  #define CBC 1
+#define CBC 0
 #endif
 
 #ifndef ECB
-  #define ECB 1
+#define ECB 1
 #endif
-#ifndef LOGE
-#define LOGE(...)  __android_log_print(ANDROID_LOG_ERROR,"native-jni",__VA_ARGS__)
-#endif
-static const unsigned  char HEX[16]={0x10,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f};
-static const uint8_t AES_KEY[]="1234567890abcdef";
+
+#define AES_BLOCK_LENGTH 16
+
+typedef enum {
+    AES_RESULT_OK = 0,
+    AES_RESULT_INVALID_ARGUMENT,
+    AES_RESULT_INVALID_BASE64,
+    AES_RESULT_INVALID_CIPHERTEXT_LENGTH,
+    AES_RESULT_INVALID_PADDING,
+    AES_RESULT_OUT_OF_MEMORY
+} AesResult;
+
 #if defined(ECB) && ECB
 
-void AES128_ECB_encrypt(uint8_t* input, const uint8_t* key, uint8_t *output);
-void AES128_ECB_decrypt(uint8_t* input, const uint8_t* key, uint8_t *output);
+void AES128_ECB_encrypt(const uint8_t *input, const uint8_t *key, uint8_t *output);
 
-char* AES_128_ECB_PKCS5Padding_Encrypt(const char *in,const uint8_t *key);
-char* AES_128_ECB_PKCS5Padding_Decrypt(const char *in, const uint8_t* key);
+void AES128_ECB_decrypt(const uint8_t *input, const uint8_t *key, uint8_t *output);
 
-int* findPaddingIndex(uint8_t * str,size_t length);
-#endif // #if defined(ECB) && ECB
+AesResult AES_128_ECB_PKCS5Padding_Encrypt(
+        const uint8_t *input,
+        size_t input_length,
+        const uint8_t *key,
+        char **output);
 
+AesResult AES_128_ECB_PKCS5Padding_Decrypt(
+        const char *input,
+        size_t input_length,
+        const uint8_t *key,
+        uint8_t **output,
+        size_t *output_length);
 
-#if defined(CBC) && CBC
+#endif
 
-void AES128_CBC_encrypt_buffer(uint8_t* output, uint8_t* input, uint32_t length, const uint8_t* key, const uint8_t* iv);
-void AES128_CBC_decrypt_buffer(uint8_t* output, uint8_t* input, uint32_t length, const uint8_t* key, const uint8_t* iv);
-
-#endif // #if defined(CBC) && CBC
-
-
-#endif //_AES_H_
+#endif
